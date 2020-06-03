@@ -1,10 +1,9 @@
 #! /bin/bash
-export MODEL_DIR=/nfs/users/chenxu/project/car_materials_recommend/experiment/chinese_L-12_H-768_A-12
-export DATA_DIR=/nfs/users/chenxu/project/car_materials_recommend/experiment/data
-export LD_LIBRARY_PATH=/usr/local/cuda-10.0/lib64:$LD_LIBRARY_PATH
+export MODEL_DIR=model
+export DATA_DIR=data
 
 CUDA_VISIBLE_DEVICES=1 python bert/run_classifier.py \
-	--task_name=label \
+	--task_name=Emotion \
 	--do_train=true \
 	--do_eval=true \
 	--data_dir=$DATA_DIR \
@@ -15,4 +14,4 @@ CUDA_VISIBLE_DEVICES=1 python bert/run_classifier.py \
 	--train_batch_size=32 \
 	--learning_rate=2e-5 \
 	--num_train_epochs=2.0 \
-	--output_dir=./output/baseline/
+	--output_dir=output
