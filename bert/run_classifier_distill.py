@@ -133,17 +133,23 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
+flags.DEFINE_string("teacher_model", None, "The teacher model.")
 flags.DEFINE_integer("temperature", 1, "Temperature parameters in distillation operation.")
-flags.DEFINE_bool("do_distill", False, "Whether to distill the model.")
+flags.DEFINE_float("alpha", None, "Superparameters weighing cross entropy loss and distillation loss.")
+
+if FLAGS.teacher_model:
+    predict_fn = tf.contrib.predictor.from_saved_model(FLAGS.teacher_model)
+    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=True)
 
 
 class InputExample(object):
 
-    def __init__(self, guid, text_a, text_b=None, label=None):
+    def __init__(self, guid, text_a, text_b=None, label=None, soft_label=None):
         self.guid = guid
         self.text_a = text_a
         self.text_b = text_b
         self.label = label
+        self.soft_label = soft_label
 
 
 class PaddingInputExample(object):
@@ -357,6 +363,14 @@ def convert_single_example(ex_index, example, label_list, max_seq_length, tokeni
     assert len(segment_ids) == max_seq_length
 
     label_id = label_map[example.label]
+    soft_label = [0]
+    if FLAGS.teacher_model:
+        prediction = predict_fn({
+            "input_ids": [input_ids],
+            "segment_ids": [segment_ids],
+            "input_mask": [input_mask]
+        })
+        soft_label = prediction["probabilities"].tolist()[0]
     if ex_index < 5:
         tf.logging.info("*** Example ***")
         tf.logging.info("guid: %s" % (example.guid))
@@ -366,20 +380,19 @@ def convert_single_example(ex_index, example, label_list, max_seq_length, tokeni
         tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
         tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
         tf.logging.info("label: %s (id = %d)" % (example.label, label_id))
+        tf.logging.info("soft_target: {}".format(" ".join([str(x) for x in soft_label])))
 
     feature = InputFeatures(
         input_ids=input_ids,
         input_mask=input_mask,
         segment_ids=segment_ids,
         label_id=label_id,
-        is_real_example=True)
+        is_real_example=True,
+        soft_label=soft_label)
     return feature
 
 
-def file_based_convert_examples_to_features(
-        examples, label_list, max_seq_length, tokenizer, output_file):
-    """Convert a set of `InputExample`s to a TFRecord file."""
-
+def file_based_convert_examples_to_features(examples, label_list, max_seq_length, tokenizer, output_file):
     writer = tf.python_io.TFRecordWriter(output_file)
 
     for (ex_index, example) in enumerate(examples):
@@ -393,29 +406,31 @@ def file_based_convert_examples_to_features(
             f = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
             return f
 
+        def create_float_feature(values):
+            f = tf.train.Feature(float_list=tf.train.FloatList(value=list(values)))
+            return f
+
         features = collections.OrderedDict()
         features["input_ids"] = create_int_feature(feature.input_ids)
         features["input_mask"] = create_int_feature(feature.input_mask)
         features["segment_ids"] = create_int_feature(feature.segment_ids)
         features["label_ids"] = create_int_feature([feature.label_id])
-        features["is_real_example"] = create_int_feature(
-            [int(feature.is_real_example)])
+        features["is_real_example"] = create_int_feature([int(feature.is_real_example)])
+        features["soft_label"] = create_float_feature(feature.soft_target)
 
         tf_example = tf.train.Example(features=tf.train.Features(feature=features))
         writer.write(tf_example.SerializeToString())
     writer.close()
 
 
-def file_based_input_fn_builder(input_file, seq_length, is_training,
-                                drop_remainder):
-    """Creates an `input_fn` closure to be passed to TPUEstimator."""
-
+def file_based_input_fn_builder(input_file, seq_length, is_training, drop_remainder):
     name_to_features = {
         "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
         "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
         "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
         "label_ids": tf.FixedLenFeature([], tf.int64),
         "is_real_example": tf.FixedLenFeature([], tf.int64),
+        "soft_label": tf.FixedLenFeature([2], tf.float32)
     }
 
     def _decode_record(record, name_to_features):
@@ -472,7 +487,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
-                 labels, num_labels, use_one_hot_embeddings):
+                 labels, soft_label, num_labels, use_one_hot_embeddings):
     """Creates a classification model."""
     model = modeling.BertModel(
         config=bert_config,
@@ -500,20 +515,23 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
 
     with tf.variable_scope("loss"):
         if is_training:
+            # I.e., 0.1 dropout
             output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
 
         logits = tf.matmul(output_layer, output_weights, transpose_b=True)
         logits = tf.nn.bias_add(logits, output_bias)
         one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
 
-        if FLAGS.do_distill:
+        if is_training:
             probabilities = tf.nn.softmax(logits / FLAGS.temperature, axis=-1)
             log_probs = tf.nn.log_softmax(logits / FLAGS.temperature, axis=-1)
-            per_example_loss = -FLAGS.temperature ** 2 * tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+            per_example_loss = (1 - FLAGS.alpha) * -tf.reduce_sum(one_hot_labels * log_probs, axis=-1) \
+                                + FLAGS.alpha * -tf.reduce_sum(soft_label * log_probs, axis=-1)
         else:
             probabilities = tf.nn.softmax(logits, axis=-1)
             log_probs = tf.nn.log_softmax(logits, axis=-1)
             per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+
         loss = tf.reduce_mean(per_example_loss)
 
         return (loss, per_example_loss, logits, probabilities)
@@ -535,6 +553,7 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
         input_mask = features["input_mask"]
         segment_ids = features["segment_ids"]
         label_ids = features["label_ids"]
+        soft_label = features.get("soft_label")
         is_real_example = None
         if "is_real_example" in features:
             is_real_example = tf.cast(features["is_real_example"], dtype=tf.float32)
@@ -544,7 +563,7 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
         (total_loss, per_example_loss, logits, probabilities) = create_model(
-            bert_config, is_training, input_ids, input_mask, segment_ids, label_ids,
+            bert_config, is_training, input_ids, input_mask, segment_ids, label_ids, soft_label,
             num_labels, use_one_hot_embeddings)
 
         tvars = tf.trainable_variables()
@@ -667,10 +686,7 @@ def input_fn_builder(features, seq_length, is_training, drop_remainder):
 
 # This function is not used by this file but is still used by the Colab and
 # people who depend on it.
-def convert_examples_to_features(examples, label_list, max_seq_length,
-                                 tokenizer):
-    """Convert a set of `InputExample`s to a list of `InputFeatures`."""
-
+def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer):
     features = []
     for (ex_index, example) in enumerate(examples):
         if ex_index % 10000 == 0:

@@ -40,7 +40,7 @@ def convert_single_example(query, label_list, max_seq_length, tokenizer):
 
 if __name__ == '__main__':
     label_list = [0, 1]
-    predict_fn = tf.contrib.predictor.from_saved_model("exported/1590300832/")
+    predict_fn = tf.contrib.predictor.from_saved_model("export/1591538997/")
     tokenizer = tokenization.FullTokenizer(vocab_file="model/vocab.txt", do_lower_case=True)
     feature = convert_single_example("菜量很大，味道也不错，师傅速度很快，好评～", label_list, 128, tokenizer)
     prediction = predict_fn({

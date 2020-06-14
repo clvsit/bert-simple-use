@@ -1,8 +1,9 @@
 #! /bin/bash
 export MODEL_DIR=model
 export DATA_DIR=data
+export LD_LIBRARY_PATH=/usr/local/cuda-10.0/lib64:$LD_LIBRARY_PATH
 
-CUDA_VISIBLE_DEVICES=1 python bert/run_classifier.py \
+CUDA_VISIBLE_DEVICES=2 python bert/run_classifier.py \
 	--task_name=Emotion \
 	--do_train=true \
 	--do_eval=true \
@@ -14,4 +15,4 @@ CUDA_VISIBLE_DEVICES=1 python bert/run_classifier.py \
 	--train_batch_size=32 \
 	--learning_rate=2e-5 \
 	--num_train_epochs=2.0 \
-	--output_dir=output
+	--output_dir=output/small
