@@ -1,9 +1,8 @@
 #! /bin/bash
 export MODEL_DIR=model
 export DATA_DIR=data
-export LD_LIBRARY_PATH=/usr/local/cuda-10.0/lib64:$LD_LIBRARY_PATH
 
-CUDA_VISIBLE_DEVICES=2 python bert/run_classifier.py \
+CUDA_VISIBLE_DEVICES=0 python bert/run_classifier.py \
 	--task_name=Emotion \
 	--do_train=true \
 	--do_eval=true \
