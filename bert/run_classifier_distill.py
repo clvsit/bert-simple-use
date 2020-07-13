@@ -526,7 +526,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
             probabilities = tf.nn.softmax(logits / FLAGS.temperature, axis=-1)
             log_probs = tf.nn.log_softmax(logits / FLAGS.temperature, axis=-1)
             per_example_loss = (1 - FLAGS.alpha) * -tf.reduce_sum(one_hot_labels * log_probs, axis=-1) \
-                                + FLAGS.alpha * -tf.reduce_sum(soft_label * log_probs, axis=-1)
+                                + FLAGS.alpha * -tf.reduce_sum(soft_label * log_probs, axis=-1) * FLAGS.temperature ** 2
         else:
             probabilities = tf.nn.softmax(logits, axis=-1)
             log_probs = tf.nn.log_softmax(logits, axis=-1)
