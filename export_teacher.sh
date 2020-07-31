@@ -1,0 +1,11 @@
+python bert/run_classifier.py \
+  --task_name=Emotion \
+  --do_export=true \
+  --do_distill=true \
+  --temperature=10 \
+  --data_dir=data \
+  --vocab_file=model/vocab.txt \
+  --bert_config_file=model/bert_config.json \
+  --init_checkpoint=output/teacher/model.ckpt-2496 \
+  --output_dir=output/teacher \
+  --export_dir=export/teacher

@@ -2,7 +2,7 @@
 export MODEL_DIR=model
 export DATA_DIR=data
 
-CUDA_VISIBLE_DEVICES=0 python bert/run_classifier.py \
+CUDA_VISIBLE_DEVICES=0 python bert/run_classifier_distill.py \
 	--task_name=Emotion \
 	--do_train=true \
 	--do_eval=true \

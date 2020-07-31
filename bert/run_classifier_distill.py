@@ -380,7 +380,7 @@ def convert_single_example(ex_index, example, label_list, max_seq_length, tokeni
         tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
         tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
         tf.logging.info("label: %s (id = %d)" % (example.label, label_id))
-        tf.logging.info("soft_target: {}".format(" ".join([str(x) for x in soft_label])))
+        tf.logging.info("soft_label: {}".format(" ".join([str(x) for x in soft_label])))
 
     feature = InputFeatures(
         input_ids=input_ids,
@@ -416,7 +416,7 @@ def file_based_convert_examples_to_features(examples, label_list, max_seq_length
         features["segment_ids"] = create_int_feature(feature.segment_ids)
         features["label_ids"] = create_int_feature([feature.label_id])
         features["is_real_example"] = create_int_feature([int(feature.is_real_example)])
-        features["soft_label"] = create_float_feature(feature.soft_target)
+        features["soft_label"] = create_float_feature(feature.soft_label)
 
         tf_example = tf.train.Example(features=tf.train.Features(feature=features))
         writer.write(tf_example.SerializeToString())
